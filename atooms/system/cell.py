@@ -9,9 +9,9 @@ from atooms.core import ndim as _ndim
 
 class Cell(object):
 
-    def __init__(self, side, origin=numpy.zeros(_ndim)):
+    def __init__(self, side, center=numpy.zeros(_ndim)): 
         self.side = numpy.asarray(side, dtype=numpy.float64)
-        self.origin = origin
+        self.center = center
 
     @property
     def volume(self):

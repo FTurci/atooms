@@ -78,7 +78,13 @@ class Particle(object):
 
     def fold(self, cell):
         """Fold self into central cell."""
+
+        # Move the center to 0
+        self.position -= cell.center
         self.position = _periodic_vector_unfolded(self.position, cell.side)
+
+        # Restore the center
+        self.position += cell.center
         return self
 
     def maxwellian(self, T):
@@ -280,3 +286,4 @@ def gyration_radius(particles, cell=None, weight=None, center=None,
             else:
                 rg = min(rg_new, rg)
         return rg
+
