@@ -15,7 +15,7 @@ from atooms.trajectory import TrajectoryLAMMPS
 from atooms.core.utils import rmd
 
 try:
-    _ = subprocess.check_output('lammps < /dev/null', shell=True, stderr=subprocess.STDOUT, executable='/bin/bash')
+    _ = subprocess.check_output('mpirun -np 1 lammps < /dev/null', shell=True, stderr=subprocess.STDOUT, executable='/bin/bash')
     _version = _.decode().split('\n')[0][8:-1]
 except subprocess.CalledProcessError:
     raise ImportError('lammps not installed')
@@ -152,8 +152,12 @@ class LAMMPS(object):
         file_inp = os.path.join(dirout, 'lammps.atom.inp')
         # Update lammps startup file using self.system
         # This will write the .inp startup file
+
+
         with TrajectoryLAMMPS(file_tmp, 'w') as th:
             th.write(self.system, 0)
+
+
 
         # Do things in lammps order: units, read, commands, run. A
         # better approach would be to parse commands and place
@@ -167,8 +171,11 @@ read_data %s
 run %s
 write_dump all custom %s id type x y z vx vy vz modify sort id
 """ % (file_inp, self.commands, steps, file_tmp)
+        
 
         stdout = _run_lammps_command(cmd)
+
+
         if self.verbose:
             print(stdout)
 
