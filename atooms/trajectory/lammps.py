@@ -116,7 +116,7 @@ class TrajectoryLAMMPS(TrajectoryBase):
             data = [float(x) for x in self._fh.readline().split()]
             L.append(data[1] - data[0])
             center.append((data[1] + data[0])/2.)
-        cell = Cell(numpy.array(L),center=numpy.array(center))
+        cell = Cell(numpy.array(L),origin=numpy.array(center))
 
         # Read atoms data
         idx, data = self._index_db['ATOMS'][frame]
