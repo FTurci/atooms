@@ -22,8 +22,8 @@ class Interaction(object):
         self.potential = potential
         self.name = name
         self.forces = None
-        self.energy = 0.0
-        self.virial = 0.0
+        self.energy = None
+        self.virial = None
         self.stress = None  # this will be (ndim,ndim) numpy array
         self.hessian = None
 
@@ -54,3 +54,13 @@ class Interaction(object):
             self.forces = numpy.zeros((len(particle), len(cell.side)))
         else:
             raise ValueError('unsupported observable %s' % observable)
+
+    def report(self):
+        txt = ''
+        for p in self.potential:
+            try:
+                txt += p.report()
+            except AttributeError:
+                pass
+        return txt
+

@@ -88,10 +88,10 @@ B 2.9 -2.9 0.0 2.0
 
     def test_xyz_indexed(self):
         r_ref = [[1., -1., 0.], [2.9, -2.9, 0.]]
-        t = self.Trajectory(self.finp)
-        self.assertEqual(t.steps, [1, 2, 3, 4])
-        self.assertEqual(r_ref[0], list(t[0].particle[0].position))
-        self.assertEqual(r_ref[1], list(t[0].particle[1].position))
+        with self.Trajectory(self.finp) as t:
+            self.assertEqual(t.steps, [1, 2, 3, 4])
+            self.assertEqual(r_ref[0], list(t[0].particle[0].position))
+            self.assertEqual(r_ref[1], list(t[0].particle[1].position))
 
     def test_xyz_indexed_unfolded(self):
         t1 = self.Trajectory(self.finp)
@@ -121,7 +121,6 @@ B 2.9 -2.9 0.0 2.0
         t1[0]
         s1 = t1[3]
         t1.close()
-        t.close()
 
         self.assertEqual(list(s.particle[0].position), list(s1.particle[0].position))
         self.assertEqual(list(s.particle[1].position), list(s1.particle[1].position))
@@ -194,10 +193,10 @@ B 2.9 -2.9 0.0
         with open(finp, 'w') as fh:
             fh.write("""\
 3
-metafmt:space,comma columns:id,x,y,z mass:1.0,2.0,3.0 step:1 cell:5.0,5.0,5.0 
-B 1.0 -1.0 0.0
-A 2.9 -2.9 0.0
-C 2.9 -2.9 0.0
+metafmt:space,comma columns:id,x,y,z,radius mass:1.0,2.0,3.0 step:1 cell:5.0,5.0,5.0 
+B 1.0 -1.0 0.0 0.5
+A 2.9 -2.9 0.0 0.6
+C 2.9 -2.9 0.0 0.7
 3
 metafmt:space,comma columns:id,x,y,z mass:2.0,3.0 step:1 cell:5.0,5.0,5.0 
 C 1.0 -1.0 0.0
@@ -205,12 +204,42 @@ B 2.9 -2.9 0.0
 B 2.9 -2.9 0.0
 """)
         with self.Trajectory(finp) as th:
+            self.assertEqual(th[0].particle[0].radius, 0.5)
+            self.assertEqual(th[0].particle[1].radius, 0.6)
+            self.assertEqual(th[0].particle[2].radius, 0.7)
             self.assertEqual(th[0].particle[0].mass, 2.0)
             self.assertEqual(th[0].particle[1].mass, 1.0)
             self.assertEqual(th[0].particle[2].mass, 3.0)
             self.assertEqual(th[1].particle[0].mass, 3.0)
             self.assertEqual(th[1].particle[1].mass, 2.0)
             self.assertEqual(th[1].particle[2].mass, 2.0)
+
+        # This is ok
+        with open(finp, 'w') as fh:
+            fh.write("""\
+3
+columns:id,x,y,z mass:2 step:1
+B 1.0 -1.0 0.0
+A 2.9 -2.9 0.0
+C 2.9 -2.9 0.0
+""")
+        with self.Trajectory(finp) as th:
+            self.assertEqual(th[0].particle[0].mass, 2.0)
+            self.assertEqual(th[0].particle[1].mass, 2.0)
+            self.assertEqual(th[0].particle[2].mass, 2.0)
+
+        # This is not ok, mass / species mismatch
+        with open(finp, 'w') as fh:
+            fh.write("""\
+3
+columns:id,x,y,z mass:1,2 step:1
+B 1.0 -1.0 0.0
+A 2.9 -2.9 0.0
+C 2.9 -2.9 0.0
+""")
+        with self.Trajectory(finp) as th:
+            with self.assertRaises(ValueError):
+                th[0]
 
     def test_xyz_columns(self):
         finp = '/tmp/test_xyz/columns.xyz'
@@ -250,6 +279,55 @@ A 1.0 -1.0 0.0
         rmd('/tmp/test_xyz')
 
 
+from atooms.trajectory.xyz import TrajectoryNeighbors
+
+class TestNeighbors(unittest.TestCase):
+
+    Trajectory = TrajectoryNeighbors
+
+    def setUp(self):
+        mkdir('/tmp/test_xyz')
+
+    def test_neighbors_consume(self):
+        with open('/tmp/test_xyz/neighbors.xyz', 'w') as fh:
+            fh.write("""\
+4
+step:1 columns:neighbors*
+2 4
+1 3
+2 
+1
+""")
+        with TrajectoryNeighbors('/tmp/test_xyz/neighbors.xyz', offset=0) as th:
+            s = th[0]
+            self.assertEqual(list(s.particle[0].neighbors), [2, 4])
+            self.assertEqual(list(s.particle[1].neighbors), [1, 3])
+            self.assertEqual(list(s.particle[2].neighbors), [2])
+            self.assertEqual(list(s.particle[3].neighbors), [1])
+
+    def test_neighbors_comma(self):
+        with open('/tmp/test_xyz/neighbors.xyz', 'w') as fh:
+            fh.write("""\
+4
+step:1 columns:neighbors timestep:0.001
+2,4
+1,3
+2
+1
+""")
+        with TrajectoryNeighbors('/tmp/test_xyz/neighbors.xyz', offset=0) as th:
+            s = th[0]
+            self.assertEqual(th.timestep, 0.001)
+            self.assertEqual(list(s.particle[0].neighbors), [2, 4])
+            self.assertEqual(list(s.particle[1].neighbors), [1, 3])
+            self.assertEqual(list(s.particle[2].neighbors), [2])
+            self.assertEqual(list(s.particle[3].neighbors), [1])
+
+    def tearDown(self):
+        from atooms.core.utils import rmd
+        rmd('/tmp/test_xyz')
+
+
 class TestSimpleXYZ(TestXYZ):
 
     Trajectory = TrajectorySimpleXYZ
@@ -270,32 +348,33 @@ class TestSimpleXYZ(TestXYZ):
         pass
 
 
-class TestRumd(TestXYZ):
+class TestRumd(unittest.TestCase):
 
     Trajectory = TrajectoryRUMD
 
     def setUp(self):
+        mkdir('/tmp/test_xyz')
         super(TestRumd, self).setUp()
         ioformat_1 = """\
 2
 ioformat=1 dt=0.005000000 boxLengths=6.000000000,6.000000000,6.000000000 numTypes=2 Nose-Hoover-Ps=-0.154678583 Barostat-Pv=0.000000000 mass=1.000000000,1.000000000 columns=type,x,y,z,imx,imy,imz,vx,vy,vz,fx,fy,fz,pe,vir
-0 2.545111895 -0.159052730 -2.589233398 0 0 1 -0.955896854 -2.176721811 0.771060944 14.875996590 -28.476327896 -15.786120415 -5.331668218 22.538120270
-1 -2.089187145 1.736116767 1.907819748 0 0 -1 -0.717318892 -0.734904408 0.904034972 -28.532371521 13.714955330 0.387423307 -7.276362737 11.813765526
+0  1.0 -1.0 0.0 0 0 1 -0.955896854 -2.176721811 0.771060944 14.875996590 -28.476327896 -15.786120415 -5.331668218 22.538120270
+1  2.9 -2.9 0.0 0 0 -1 -0.717318892 -0.734904408 0.904034972 -28.532371521 13.714955330 0.387423307 -7.276362737 11.813765526
 """
 
         with open('/tmp/test_xyz/rumd.xyz', 'w') as fh:
             fh.write(ioformat_1)
-            self.input_file = fh.name
+            self.finp = fh.name
 
     def test_read_write(self):
-        with TrajectoryRUMD(self.input_file) as th:
-            with TrajectoryRUMD(self.input_file + 'out', 'w') as th_out:
+        with TrajectoryRUMD(self.finp) as th:
+            with TrajectoryRUMD(self.finp + 'out', 'w') as th_out:
                 self.assertEqual(th.timestep, 0.005)
                 self.assertEqual(list(th[0].cell.side), [6.0, 6.0, 6.0])
                 th_out.timestep = th.timestep
                 for i, system in enumerate(th):
                     th_out.write(system, th.steps[i])
-        with TrajectoryRUMD(self.input_file + 'out') as th:
+        with TrajectoryRUMD(self.finp + 'out') as th:
             self.assertEqual(th.timestep, 0.005)
             self.assertEqual(list(th[0].cell.side), [6.0, 6.0, 6.0])
 
@@ -342,6 +421,8 @@ B 2.9 -2.9 0.0
         for step, s1, s2 in trj.utils.paste(t1, t2):
             steps.append(step)
         self.assertEqual(steps, [2, 4])
+        t1.close()
+        t2.close()
 
     def tearDown(self):
         from atooms.core.utils import rmd

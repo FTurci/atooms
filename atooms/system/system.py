@@ -116,7 +116,7 @@ class System(object):
         else:
             return ekin / len(self.particle)
 
-    def potential_energy(self, normed=False):
+    def potential_energy(self, normed=False, cache=False):
         """
         Return the total potential energy of the system.
 
@@ -124,7 +124,8 @@ class System(object):
         particle.
         """
         if self.interaction is not None:
-            self.interaction.compute('energy', self.particle, self.cell)
+            if not cache or (cache and self.interaction is None):
+                self.interaction.compute('forces', self.particle, self.cell)
             if not normed:
                 return self.interaction.energy
             else:
@@ -132,13 +133,38 @@ class System(object):
         else:
             return 0.0
 
-    def total_energy(self, normed=False):
+    def total_energy(self, normed=False, cache=False):
         """
         Return the total energy of the system.
 
         If `normed` is `True`, return the total energy per particle.
         """
-        return self.potential_energy(normed) + self.kinetic_energy(normed)
+        return self.potential_energy(normed, cache) + self.kinetic_energy(normed)
+
+    def virial(self):
+        """
+        Return the total virial of the system.
+
+        If `normed` is `True`, return the virial per unit volume.
+        """
+        if self.interaction is not None:
+            self.interaction.compute('forces', self.particle, self.cell)
+            return self.interaction.virial
+        else:
+            return 0.0
+    
+    @property
+    def pressure(self):
+        """
+        Return the pressure of the system.
+
+        It assumes that `self.interaction` has already been computed.
+        """
+        if self.thermostat:
+            T = self.thermostat.temperature
+        else:
+            T = self.temperature
+        return (len(self.particle) * T + self.interaction.virial / self.number_of_dimensions) / self.cell.volume
 
     @property
     def cm_velocity(self):
@@ -154,18 +180,27 @@ class System(object):
         """Subtract out the the center-of-mass motion."""
         fix_total_momentum(self.particle)
 
+    def fold(self):
+        """Fold positions into central cell."""
+        for p in self.particle:
+            p.fold(self.cell)
+
     def dump(self, what, order='C', dtype=None):
         """
         Return a numpy array with system properties specified by `what`.
 
-        If `what` is a string, it should be of the form
+        If `what` is a string, it must be of the form
         `particle.<attribute>` or `cell.<attribute>`. The following
-        aliases are allowed: pos, vel, ids, box.
+        aliases are allowed:
+
+        - `pos` (`particle.position`)
+        - `vel` (`particle.velocity`)
+        - `spe` (`particle.species`)
 
         If `what` is a list of strings of the form above, a dict of
         numpy arrays is returned with `what` as keys.
 
-        Particles' coordinates are retruned as (N, ndim) arrays if
+        Particles' coordinates are returned as (N, ndim) arrays if
         `order` is `C` or (ndim, N) arrays if `order` is `F`.
 
         Examples:
@@ -205,7 +240,9 @@ class System(object):
             attr = what_aliased.split('.')[-1]
             # Make array of attributes
             if what_aliased.startswith('particle'):
-                data = numpy.array([p.__getattribute__(attr) for p in self.particle], dtype=dtype)
+                data = numpy.array([getattr(p, attr) for p in self.particle], dtype=dtype)
+            elif what_aliased.startswith('cell'):
+                data = numpy.array(getattr(self.cell, attr), dtype=dtype)
             else:
                 raise ValueError('Unknown attribute %s' % what_aliased)
             # We transpose the array if F order is requested (only meaningful for 2d arrays)
@@ -216,6 +253,27 @@ class System(object):
         # If what is a string or we only have one entry we return an
         # array, otherwise we return the whole dict
         if len(what_list) == 1:
-            return dump_db.values()[0]
+            return dump_db[what_list[0]]
         else:
             return dump_db
+
+    def report(self):
+        # Summary
+        txt = ''
+        try:
+            if self.particle:
+                txt += 'system composed by {0} particles\n'.format(len(self.particle))
+            if self.cell:
+                txt += 'enclosed in a {0.shape} box at number density rho={1:.6f}\n'.format(self.cell, self.density)
+            if self.thermostat:
+                txt += 'in contact with a thermostat at T={0.temperature}\n'.format(self.thermostat)
+            if self.barostat:
+                txt += 'in contact with a barostat at P={0.pressure}\n'.format(self.barostat)
+            if self.reservoir:
+                txt += 'in contact with a reservoir at mu={0.chemical_potential}\n'.format(self.reservoir)
+            if self.interaction:
+                txt += '\n'
+                txt += self.interaction.report()
+        except:
+            pass
+        return txt

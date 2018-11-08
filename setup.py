@@ -11,7 +11,10 @@ try:
     from pypandoc import convert
     readme = convert('README.md', 'rst')
 except (ImportError, OSError):
-    readme = open('README.md', 'r').read()
+    try:
+        readme = open('README.md', 'r').read()
+    except:
+        readme = ''
 
 with open('atooms/core/_version.py') as f:
     exec(f.read())
@@ -23,7 +26,7 @@ setup(name='atooms',
       author='Daniele Coslovich',
       author_email='daniele.coslovich@umontpellier.fr',
       url='https://gitlab.info-ufr.univ-montp2.fr/atooms/atooms',
-      packages=['atooms', 'atooms/core', 'atooms/interaction', 
+      packages=['atooms', 'atooms/backends', 'atooms/core', 'atooms/interaction', 
                 'atooms/plugins', 'atooms/simulation', 'atooms/system', 
                 'atooms/trajectory'],
       scripts=['bin/trj.py'],
@@ -34,6 +37,9 @@ setup(name='atooms',
           'Development Status :: 5 - Production/Stable',
           'Intended Audience :: Science/Research',
           'Programming Language :: Python :: 2',
+          'Programming Language :: Python :: 2.7',
+          'Programming Language :: Python :: 3',
+          'Programming Language :: Python :: 3.4',
           'Topic :: Scientific/Engineering :: Physics',
       ]
 )

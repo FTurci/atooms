@@ -48,6 +48,7 @@ class System(object):
 
     def __init__(self):
         self.particle = []
+        self.cell = None
         self.thermostat = Thermostat()
 
     def potential_energy(self, normed=False):
@@ -67,6 +68,8 @@ class System(object):
     def temperature(self):
         return 0.
 
+    def report(self):
+        return ''
 
 class Thermostat(object):
 

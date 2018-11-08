@@ -16,7 +16,7 @@ user: version
 develop: version
 	python setup.py develop --user
 
-test:
+test:	version
 	python -m unittest discover -s tests
 
 doc: clean
@@ -35,4 +35,4 @@ pep8:
 	pep8 --ignore=E127,E226,E302,E402,E501 --count $(PROJECT)
 
 clean:
-	rm -f atooms/*pyc  atooms/*/*pyc tests/*pyc
+	rm -f atooms/*pyc atooms/*/*pyc tests/*pyc atooms/*/*pyo

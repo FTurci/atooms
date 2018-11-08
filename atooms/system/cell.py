@@ -11,7 +11,8 @@ class Cell(object):
 
     def __init__(self, side, center=numpy.zeros(_ndim)): 
         self.side = numpy.asarray(side, dtype=numpy.float64)
-        self.center = center
+        self.origin = origin
+        self.shape = 'cubic'
 
     @property
     def volume(self):

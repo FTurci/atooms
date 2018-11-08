@@ -31,16 +31,24 @@ class Particle(object):
         """Particle diameter."""
         return self.radius * 2
 
-    def nearest_image(self, particle, cell, copy=False):
+    def nearest_image(self, particle, cell, copy=False, folded=False):
         """
         Return the nearest image of `particle` in the given `cell`.
 
         If `copy` is `False`, the particle is transformed into to its
         nearest image, otherwise the fucction returns a copy of the
         nearest image particle and leave the original particle as is.
+
+        If `folded` is True, the coordinates are assumed to be folded
+        into the central cell (or in a cell just next to it),
+        otherwise they will be assumed to lie in an arbitrary periodic
+        cell.
         """
         rij = self.position - particle.position
-        _periodic_vector(rij, cell.side)
+        if folded:
+            rij = _periodic_vector(rij, cell.side)
+        else:
+            rij = _periodic_vector_unfolded(rij, cell.side)
         if copy:
             image = deepcopy(self)
             image.position = particle.position + rij
@@ -68,7 +76,7 @@ class Particle(object):
             if folded:
                 r = _periodic_vector(r, cell.side)
             else:
-                r = _periodic_vector_unfolded(r, cell.sidebox)
+                r = _periodic_vector_unfolded(r, cell.side)
         return r
 
     def __repr__(self):
@@ -106,7 +114,7 @@ class Particle(object):
 # Utility functions
 
 def _periodic_vector(vec, box):
-    for i in xrange(vec.shape[0]):
+    for i in range(vec.shape[0]):
         if vec[i] > box[i] / 2:
             vec[i] += - box[i]
         elif vec[i] < -box[i] / 2:
@@ -115,10 +123,12 @@ def _periodic_vector(vec, box):
     # return numpy.where(abs(a) > box/2, a-numpy.copysign(box, a), a)
     return vec
 
+
 def _periodic_vector_unfolded(vec, box):
     return vec - numpy.rint(vec / box) * box
     # Optimized version
     # return vec - numpy.rint(vec * invbox) * box
+
 
 def fix_total_momentum(particles):
     """
@@ -130,6 +140,7 @@ def fix_total_momentum(particles):
         p.velocity -= vcm
     return particles
 
+
 def cm_velocity(particle):
     """Velocity of the center of mass of a list of particles."""
     vcm = numpy.zeros_like(particle[0].velocity)
@@ -138,6 +149,7 @@ def cm_velocity(particle):
         vcm += p.velocity * p.mass
         mtot += p.mass
     return vcm / mtot
+
 
 def cm_position(particle):
     """Center-of-mass of a list of particles."""
@@ -148,9 +160,11 @@ def cm_position(particle):
         mtot += p.mass
     return rcm / mtot
 
+
 def distinct_species(particles):
     """Return sorted list of distinct `species` of `particles`."""
     return list(sorted(set([p.species for p in particles])))
+
 
 def composition(particles):
     """
@@ -162,6 +176,7 @@ def composition(particles):
     for p in particles:
         comp[p.species] += 1
     return comp
+
 
 def rotate(particle, cell):
     """
@@ -199,6 +214,7 @@ def rotate(particle, cell):
     theta = math.acos(numpy.dot(pr_axis, z_axis) / (norm2(pr_axis) * norm2(z_axis))**0.5)
     for pi in p:
         pi.position = numpy.dot(rotation(ro_axis, theta), pi.position)
+    return p
 
 
 def overlaps(particle, cell):
@@ -212,7 +228,6 @@ def overlaps(particle, cell):
             if d < (pi.radius + pj.radius):
                 x.append((i, j))
     return len(x) > 0, x
-
 
 
 def gyration_radius(particles, cell=None, weight=None, center=None,
@@ -265,12 +280,20 @@ def gyration_radius(particles, cell=None, weight=None, center=None,
             for p in particles:
                 cluster.append(p.nearest_image(p_central, cell, copy=True))
 
+        def weighted_cm_position(particle, weight):
+            """Weighted center-of-mass of a list of particles."""
+            rcm = numpy.zeros_like(particle[0].position)
+            wtot = sum(weight)
+            for i, p in enumerate(particle):
+                rcm += p.position * weight[i]
+            return rcm / wtot
+
         # Compute gyration radius
-        rcm = cm_position(cluster)
+        rcm = weighted_cm_position(cluster, weight)
         rg = 0.0
-        for p in cluster:
+        for i, p in enumerate(cluster):
             dr = p.position - rcm
-            rg += numpy.dot(dr, dr)
+            rg += numpy.dot(dr, dr) * weight[i]
         rg /= len(cluster)
         return rg**0.5
 
@@ -286,4 +309,33 @@ def gyration_radius(particles, cell=None, weight=None, center=None,
             else:
                 rg = min(rg_new, rg)
         return rg
+
+
+def collective_overlap(particle, other, a, side, normalize=True):
+    """Compute collective overlap between two lists of particles."""
+    # These optimizations via numpy are necessary. Computing O(N^2)
+    # quantities in pure python takes forever.
+    x = numpy.array([p.position for p in particle])
+    y = numpy.array([p.position for p in other])
+    dr = numpy.ndarray(x.shape[0])
+    rij = numpy.asarray(y)
+    q = 0
+    for i in range(y.shape[0]):
+        dr = x[:, :] - y[i, :]
+        dr = dr - numpy.rint(dr / side) * side
+        dr = numpy.sum(dr**2, axis=1)
+        q += (dr < a**2).sum()
+    if normalize:
+        q /= float(len(particle))
+    return q
+
+
+def self_overlap(particle, other, a, normalize=True):
+    """Compute self overlap between two lists of unfolded particles."""
+    # This quantity is O(N) and therefore we use pure python
+    rij = [sum(p.distance(o)**2) for p, o in zip(particle, other)]
+    q = (numpy.array(rij) < a**2).sum()
+    if normalize:
+        q /= float(len(particle))
+    return q
 

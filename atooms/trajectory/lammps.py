@@ -27,13 +27,13 @@ def _parse_z(data, particle, cell):
     particle.position[2] = float(data)
 
 def _parse_xs(data, particle, cell):
-    particle.position[0] = (float(data)-0.5) * cell.side[0]
+    particle.position[0] = (float(data) - 0.5) * cell.side[0] 
 
 def _parse_ys(data, particle, cell):
-    particle.position[1] = (float(data)-0.5) * cell.side[1]
+    particle.position[1] = (float(data) - 0.5) * cell.side[1] 
 
 def _parse_zs(data, particle, cell):
-    particle.position[2] = (float(data)-0.5) * cell.side[2]
+    particle.position[2] = (float(data) - 0.5) * cell.side[2] 
 
 def _parse_vx(data, particle, cell):
     particle.velocity[0] = float(data)
@@ -66,7 +66,6 @@ class TrajectoryLAMMPS(TrajectoryBase):
         self._fh = open(self.filename, self.mode)
         if mode == 'r':
             self._setup_index()
-            self._setup_steps()
 
     def _setup_index(self):
         """Sample indexing via tell / seek"""
@@ -79,8 +78,8 @@ class TrajectoryLAMMPS(TrajectoryBase):
             # We break if file is over or we found an empty line
             if not data:
                 break
-            if data.startswith('ITEM:'):                
-                for block in ['TIMESTEP', 'NUMBER OF ATOMS', 
+            if data.startswith('ITEM:'):
+                for block in ['TIMESTEP', 'NUMBER OF ATOMS',
                               'BOX BOUNDS', 'ATOMS']:
                     if data[6:].startswith(block):
                         # entry contains whatever is found after block
@@ -89,14 +88,15 @@ class TrajectoryLAMMPS(TrajectoryBase):
                         break
         self._fh.seek(0)
 
-    def _setup_steps(self):
-        self.steps = []
+    def read_steps(self):
+        steps = []
         for idx, _ in self._index_db['TIMESTEP']:
             self._fh.seek(idx)
             self._fh.readline()
             step = int(self._fh.readline())
-            self.steps.append(step)
+            steps.append(step)
         self._fh.seek(0)
+        return steps
 
     def read_sample(self, frame):
         # Read number of particles
@@ -180,6 +180,9 @@ class TrajectoryLAMMPS(TrajectoryBase):
     def write_sample(self, system, step):
         pass
 
+    def close(self):
+        self._fh.close()
+
 
 class TrajectoryFolderLAMMPS(TrajectoryFolder):
 
@@ -195,51 +198,23 @@ class TrajectoryFolderLAMMPS(TrajectoryFolder):
         TrajectoryFolder.__init__(self, filename, mode=mode,
                                   file_pattern=file_pattern,
                                   step_pattern=step_pattern)
+        # We force reading steps from lammps file
+        self._steps = None
+
+    def read_steps(self):
+        steps = []
+        for filename in self.files:
+            with TrajectoryLAMMPS(filename, 'r') as th:
+                steps.append(th.steps[0])
+        return steps
 
     def read_sample(self, frame):
         with TrajectoryLAMMPS(self.files[frame], 'r') as th:
             return th[0]
 
-    def write_init(self, system):
-        f = open(self.filename + '.inp', 'w')
-        np = len(system.particle)
-        L = system.cell.side
-        sp = distinct_species(system.particle)
-
-        # LAMMPS header
-        h = '\n'
-        h += "%i atoms\n" % np
-        h += "%i atom types\n" % len(sp)
-        h += "%g %g  xlo xhi\n" % (-L[0]/2, L[0]/2)
-        h += "%g %g  ylo yhi\n" % (-L[1]/2, L[1]/2)
-        h += "%g %g  zlo zhi\n" % (-L[2]/2, L[2]/2)
-        f.write(h + '\n')
-
-        # LAMMPS body
-        # Masses of species
-        m = "\nMasses\n\n"
-        for isp in range(len(sp)):
-            # Iterate over particles. Find instances of species and get masses
-            for p in system.particle:
-                if p.species == sp[isp]:
-                    m += '%s %g\n' % (isp+1, p.mass)
-                    break
-
-        # Atom coordinates
-        r = "\nAtoms\n\n"
-        v = "\nVelocities\n\n"
-        for i, p in enumerate(system.particle):
-            r += '%s %s %g %g %g\n' % tuple([i+1, sp.index(p.species)+1] + list(p.position))
-            v += '%s    %g %g %g\n' % tuple([i+1] + list(p.velocity))
-
-        f.write(m)
-        f.write(r)
-        f.write(v)
-        f.close()
-
     def write_sample(self, system, step):
         # We cannot write
-        return
+        raise NotImplementedError('cannot write lammps folder trajectory')
 
 # Note: to get the tabulated potential from a dump of potential.x do
 # > { echo -e "\nPOTENTIAL\nN 10000\n"; grep -v '#' /tmp/kalj.ff.potential.1-1 | \

@@ -15,16 +15,19 @@ from atooms.trajectory import SuperTrajectory
 class TrajectoryRUMD(TrajectoryXYZ):
     # TODO: allow reading unfolded configuration by parsing the box image integers
 
-    def __init__(self, filename, mode='r'):
+    def __init__(self, filename, mode='r', fields=None):
         super(TrajectoryRUMD, self).__init__(filename, mode,
                                              alias={'timeStepIndex': 'step',
                                                     'boxLengths': 'cell',
-                                                    'sim_box': 'cell'})
+                                                    'sim_box': 'cell'},
+                                             fields=fields)
+        if mode == 'r':
+            self.fields = ['type', 'x', 'y', 'z', 'vx', 'vy', 'vz'] if fields is None else fields
         # The minimum id for RUMD is 0
         self._min_id = 0
 
-    def _setup_steps(self):
-        super(TrajectoryRUMD, self)._setup_steps()
+    def read_steps(self):
+        steps = super(TrajectoryRUMD, self).read_steps()
 
         # RUMD specific stuff
         basename_ext = os.path.basename(self.filename)
@@ -37,8 +40,8 @@ class TrajectoryRUMD(TrajectoryXYZ):
             # This is important when trajectories are written in blocks.
             _, block = s.group(1), s.group(2)
             iblock = int(block)
-            dt = self.steps[-1]
-            self.steps = [i+dt*iblock for i in self.steps]
+            dt = steps[-1]
+            steps = [i + dt*iblock for i in steps]
 
         # If we follow a folder based logic, files are named according
         # to the step and contain a single step like
@@ -46,8 +49,9 @@ class TrajectoryRUMD(TrajectoryXYZ):
         # We grab the step from
         # the file name.
         s = re.search(r'^(\d+)$', basename)
-        if s and len(self.steps) == 1:
-            self.steps = [int(basename)]
+        if s and len(steps) == 1:
+            steps = [int(basename)]
+        return steps
 
     def _read_metadata(self, frame):
         meta = super(TrajectoryRUMD, self)._read_metadata(frame)
@@ -69,16 +73,13 @@ class TrajectoryRUMD(TrajectoryXYZ):
         else:
             return 1.0
 
-    def write_timestep(self, value):
-        self._timestep = value
-
     def _comment_header(self, step, system):
 
         def first_of_species(system, species):
             for i, p in enumerate(system.particle):
                 if p.species == species:
                     return i
-            raise ValueError('no species %d found in system' % isp)
+            raise ValueError('no species %d found in system' % species)
 
         sp = distinct_species(system.particle)
         mass = [system.particle[first_of_species(system, isp)].mass for isp in sp]
@@ -99,7 +100,7 @@ class TrajectoryRUMD(TrajectoryXYZ):
             # general getting the sample back via read_sample() will
             # not preserve the species.
             isp = sp.index(p.species)
-            self.trajectory.write(("%s"+ndim*" %14.6f" + ndim*" %g " + "\n") %
+            self.trajectory.write(("%s"+ndim*" %.6f" + ndim*" %.6f " + "\n") %
                                   ((isp,) + tuple(p.position) + tuple(p.velocity)))
 
     def close(self):
@@ -109,7 +110,7 @@ class TrajectoryRUMD(TrajectoryXYZ):
 
 class SuperTrajectoryRUMD(SuperTrajectory):
 
-    def __new__(self, inp, mode='r', basename='trajectory'):
+    def __new__(cls, inp, mode='r', basename='trajectory'):
         """ Takes a directory as input and get all block*gz files in there """
         if not os.path.isdir(inp):
             raise IOError("We expected this to be a dir (%s)" % inp)
@@ -117,8 +118,9 @@ class SuperTrajectoryRUMD(SuperTrajectory):
         if len(f_all) == 0:
             # Let's try with 00000.xyz.gz lie files
             f_all = glob.glob(inp + '/[0-9]*gz')
-        f_all.sort()
-        # Avoid last block because rumd does not write the last cfg!
-        if len(f_all) > 1:
+            f_all.sort()
+        else:
+            # Avoid last block because rumd does not write the last cfg!
+            f_all.sort()
             f_all = f_all[:-1]
         return SuperTrajectory(f_all, TrajectoryRUMD)

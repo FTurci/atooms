@@ -7,14 +7,16 @@ Minimal simulation backend for LAMMPS (http://lammps.sandia.gov).
 
 import os
 import subprocess
+import tempfile
 from atooms import trajectory
 from atooms import system
 from atooms import interaction
 from atooms.trajectory import TrajectoryLAMMPS
+from atooms.core.utils import rmd
 
 try:
-    _ = subprocess.check_output('lammps < /dev/null', shell=True, stderr=subprocess.STDOUT)
-    _version = _.split('\n')[0][8:-1]
+    _ = subprocess.check_output('mpirun -np 1 lammps < /dev/null', shell=True, stderr=subprocess.STDOUT, executable='/bin/bash')
+    _version = _.decode().split('\n')[0][8:-1]
 except subprocess.CalledProcessError:
     raise ImportError('lammps not installed')
 
@@ -23,8 +25,9 @@ def _run_lammps_command(cmd):
     # see https://stackoverflow.com/questions/163542/python-how-do-i-pass-a-string-into-subprocess-popen-using-the-stdin-argument
     p = subprocess.Popen(['lammps'], shell=True,
                          stdin=subprocess.PIPE,
-                         stdout=subprocess.PIPE)
-    stdout = p.communicate(input=cmd)[0]
+                         stdout=subprocess.PIPE,
+                         executable='/bin/bash')
+    stdout = p.communicate(input=cmd.encode('utf8'))[0]
     code = p.returncode
     if code != 0:
         raise RuntimeError(stdout)
@@ -33,18 +36,24 @@ def _run_lammps_command(cmd):
 
 class Interaction(interaction.Interaction):
 
+    """
+    Interaction wrapper for LAMMPS.
+
+    For the time being, it assumes `self.potential` is a string
+    containing appropriate lammps commands that define the
+    interaction.
+    """
+
     # TODO: assign interaction to system based on pair_style entries in cmd
 
     def compute(self, observable, particle, cell):
         # We use self.potential as lammps commands
-
-        # TODO: remove hard coded paths
-        file_tmp = '/tmp/out.atom'
+        dirout = tempfile.mkdtemp()
+        file_tmp = os.path.join(dirout, 'lammps.atom')
+        file_inp = os.path.join(dirout, 'lammps.atom.inp')
         # Update lammps startup file using self.system
         # This will write the .inp startup file
-        file_inp = file_tmp + '.inp'
         with TrajectoryLAMMPS(file_tmp, 'w') as th:
-            #th.write(self.system, 0)
             th.write(system.System(particle, cell), 0)
 
         # Do things in lammps order: units, read, commands, run. A
@@ -65,17 +74,22 @@ run 0
             if 'Step' in line:
                 found = True
             elif found:
-                self.energy = float(line.split()[2])
+                self.energy = float(line.split()[2]) * len(particle)
                 break
+
+        # Clean up
+        rmd(dirout)
 
 
 class System(system.System):
 
+    """System wrapper for LAMMPS."""
+
     def __init__(self, filename, commands):
         """
-        The input trajectory file `filename` can be any trajectory format
-        recognized by atooms. Lammps `commands` are passed as a string
-        and should not contain dump and run commands.
+        The input file `filename` must be in LAMMPS format or match a
+        trajectory format recognized by atooms. LAMMPS `commands` must
+        be a string and should not contain dump or run commands.
         """
         self._filename = filename
         self._commands = commands
@@ -85,7 +99,7 @@ class System(system.System):
             try:
                 with trajectory.Trajectory(filename) as t:
                     s = t[0]
-            except:
+            except ValueError:
                 with trajectory.TrajectoryLAMMPS(filename) as t:
                     s = t[0]
 
@@ -106,9 +120,9 @@ class LAMMPS(object):
 
     def __init__(self, fileinp, commands):
         """
-        The input trajectory file `fileinp` can be any trajectory format
-        recognized by atooms. Lammps `commands` are passed as a string
-        and should not contain dump and run commands.
+        The input file `filename` must be in LAMMPS format or match a
+        trajectory format recognized by atooms. LAMMPS `commands` must
+        be a string and should not contain dump or run commands.
         """
         self.fileinp = fileinp
         self.commands = commands
@@ -133,13 +147,17 @@ class LAMMPS(object):
         pass
 
     def run(self, steps):
-        # TODO: remove hard coded paths
-        file_tmp = '/tmp/out.atom'
+        dirout = tempfile.mkdtemp()
+        file_tmp = os.path.join(dirout, 'lammps.atom')
+        file_inp = os.path.join(dirout, 'lammps.atom.inp')
         # Update lammps startup file using self.system
         # This will write the .inp startup file
-        file_inp = file_tmp + '.inp'
+
+
         with TrajectoryLAMMPS(file_tmp, 'w') as th:
             th.write(self.system, 0)
+
+
 
         # Do things in lammps order: units, read, commands, run. A
         # better approach would be to parse commands and place
@@ -153,10 +171,16 @@ read_data %s
 run %s
 write_dump all custom %s id type x y z vx vy vz modify sort id
 """ % (file_inp, self.commands, steps, file_tmp)
+        
 
         stdout = _run_lammps_command(cmd)
+
+
         if self.verbose:
-            print stdout
+            print(stdout)
 
         # Update internal reference to self.system
         self.system = System(file_tmp, self.commands)
+
+        # Clean up
+        rmd(dirout)
