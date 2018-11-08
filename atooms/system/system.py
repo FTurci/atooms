@@ -12,6 +12,7 @@ particle reservoir.
 
 import numpy
 from .particle import cm_position, cm_velocity, fix_total_momentum
+from .particle import show as _show
 
 
 class System(object):
@@ -277,3 +278,6 @@ class System(object):
         except:
             pass
         return txt
+
+    def show(self):
+        _show(self.particle, self.cell)

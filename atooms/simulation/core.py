@@ -25,6 +25,7 @@ import time
 import datetime
 import logging
 
+import atooms.core
 from atooms.core import __version__
 from atooms.core.utils import mkdir, barrier
 from .observers import target_steps, Speedometer, Scheduler, SimulationEnd, SimulationKill
@@ -307,6 +308,17 @@ class Simulation(object):
         self.add(self._targeter_steps, Scheduler(self.current_step + self.steps),
                  self.current_step + self.steps)
 
+        # Targeter for progress bar
+        if atooms.core.progress.active:
+            intervals = [self._cbk_params[cbk]['scheduler'].interval for cbk in self._callback]
+            intervals = [intv for intv in intervals if intv is not None]
+            min_iters = 10
+            if min(intervals) > (self.current_step + self.steps) / min_iters and \
+               (self.current_step + self.steps) / min_iters > 10 :
+                def flush(sim):
+                    pass
+                self.add(flush, Scheduler((self.current_step + self.steps) / min_iters))
+
         # Report
         _report(self._info_start())
         _report(self._info_backend())
@@ -345,6 +357,9 @@ class Simulation(object):
             else:
                 self._notify(self._speedometers)
             _log.info('starting at step: %d', self.current_step)
+            _log.info('')
+            from atooms.core.progress import progress
+            bar = progress(total=self.steps)
             while True:
                 # Run simulation until any of the observers need to be called
                 all_steps = [self._cbk_params[c]['scheduler'](self) for c in self._callback]
@@ -363,8 +378,13 @@ class Simulation(object):
                 if self.current_step == next_checkpoint:
                     self.write_checkpoint()
 
+                # Update progress bar
+                bar.update(self.current_step)
+
         except SimulationEnd as end:
             # Checkpoint configuration at last step
+            bar.update(self.current_step)
+            bar.close()
             _log.info('simulation ended successfully: %s', end)
             self.write_checkpoint()
             _report(self._info_end())

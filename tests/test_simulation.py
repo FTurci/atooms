@@ -19,7 +19,6 @@ class Test(unittest.TestCase):
         # Disable writers completely
         s = Simulation(DryRun(), output_path=None, steps=10, enable_speedometer=False)
         s.run()
-        self.assertEqual(len(s._non_targeters), 0)
 
     def test_multiple_run_calls(self):
         """
@@ -180,9 +179,7 @@ class Test(unittest.TestCase):
         from atooms.simulation import shell_stop
         f = '/tmp/test_simulation/shell/trajectory'
         s = Simulation(DryRun(), output_path=f)
-        # TODO: why not working?
-        #s.add(shell_stop, Scheduler(steps=[20]), 'exit 0')
-        s.add(shell_stop, Scheduler(20), 'exit 1')
+        s.add(shell_stop, Scheduler(steps=[20]), 'exit 1')
         s.add(write_thermo, Scheduler(10))
         s.run(100)
         self.assertEqual(s.current_step, 20)
